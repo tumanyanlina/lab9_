@@ -759,3 +759,64 @@ acceptLoop:
 	wg.Wait()
 	fmt.Println("Server exited.")
 }
+### Промпт 8
+**Инструмент:** Cursor
+**Дата:** 19.03.2026
+
+**Промпт:**
+Создай Python клиент client.py для TCP сервера на 127.0.0.1:8080 с функцией calculate_squares(numbers), которая:
+
+1. Отправляет список чисел на сервер в формате JSON и получает ответ.
+2. Перед подключением выводит "Connecting to server...".
+3. После отправки данных выводит "Sent:" и список чисел.
+4. После получения ответа выводит "Received:" и словарь с результатом.
+5. Обрабатывает ошибки соединения, таймаутов и некорректного JSON, выводя их через print("Error:", e).
+6. Добавь общий except Exception для всех неожиданных ошибок с выводом print("Unexpected error:", e).
+7. Используй with socket.create_connection(...) и recv до символа '\n'.
+8. Добавь пример использования в if __name__ == "__main__":, где вызывается calculate_squares([2,3,4]).
+
+**Результат:**
+Создала Python клиент с отладочным выводом. Клиент успешно подключается к серверу, отправляет данные и получает ответ.
+
+**Код (client.py):**
+```python
+import socket
+import json
+
+def calculate_squares(numbers, host="127.0.0.1", port=8080, timeout=5):
+    """
+    Отправляет список чисел на сервер в формате JSON и возвращает ответ сервера (dict).
+    Обрабатывает ошибки соединения, таймауты и некорректный JSON.
+    """
+    try:
+        print("Connecting to server...")
+        data = json.dumps({"numbers": numbers}).encode("utf-8") + b'\n'
+        response_data = b""
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            sock.sendall(data)
+            print("Sent:", numbers)
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                response_data += chunk
+                if b'\n' in response_data:
+                    break
+        line = response_data.split(b'\n', 1)[0].decode("utf-8")
+        result = json.loads(line)
+        print("Received:", result)
+        return result
+    except (socket.timeout, socket.error) as e:
+        print("Error:", e)
+        return None
+    except json.JSONDecodeError as e:
+        print("Error:", e)
+        return None
+    except Exception as e:
+        print("Unexpected error:", e)
+        return None
+
+if __name__ == "__main__":
+    test = [2, 3, 4]
+    result = calculate_squares(test)
+    print(result)
