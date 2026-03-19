@@ -11,8 +11,10 @@ type Numbers struct {
 	Nums []int `json:"numbers"`
 }
 
-type Result struct {
-	Sum int `json:"sum"`
+type Response struct {
+	Sum      int   `json:"sum,omitempty"`
+	Original []int `json:"original,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func handleConnection(conn net.Conn) {
@@ -25,15 +27,37 @@ func handleConnection(conn net.Conn) {
 		}
 		var nums Numbers
 		if err := json.Unmarshal(line, &nums); err != nil {
-			conn.Write([]byte("{\"error\":\"invalid json\"}\n"))
+			resp, _ := json.Marshal(Response{Error: "invalid json"})
+			conn.Write(append(resp, '\n'))
 			continue
 		}
+		if len(nums.Nums) == 0 {
+			resp, _ := json.Marshal(Response{Error: "no numbers provided"})
+			conn.Write(append(resp, '\n'))
+			continue
+		}
+		tooLarge := false
+		for _, n := range nums.Nums {
+			if n > 1000 {
+				tooLarge = true
+				break
+			}
+		}
+		if tooLarge {
+			resp, _ := json.Marshal(Response{Error: "number too large"})
+			conn.Write(append(resp, '\n'))
+			continue
+		}
+
 		sum := 0
 		for _, n := range nums.Nums {
 			sum += n * n
 		}
-		res, _ := json.Marshal(Result{Sum: sum})
-		conn.Write(append(res, '\n'))
+		resp, _ := json.Marshal(Response{
+			Sum:      sum,
+			Original: nums.Nums,
+		})
+		conn.Write(append(resp, '\n'))
 	}
 }
 

@@ -76,3 +76,94 @@ func main() {
         go handleConnection(conn)
     }
 }
+### Промпт 2
+**Инструмент:** Cursor
+**Дата:** 19.03.2026 11:00
+
+**Промпт:**
+"Улучши код TCP сервера:
+1. Добавь структуру Response с полями Sum и Original
+2. Если массив чисел пустой, возвращай {"error": "no numbers provided"}
+3. Если число больше 1000, возвращай {"error": "number too large"}
+4. Возвращай original массив в ответе"
+
+**Результат:**
+Сервер теперь возвращает original массив и обрабатывает ошибки. Но обнаружилась проблема: при числе >1000 сервер отправляет ошибку, но всё равно считает сумму.
+
+**Код (server.go):**
+```go
+package main
+
+import (
+    "bufio"
+    "encoding/json"
+    "fmt"
+    "net"
+)
+
+type Numbers struct {
+    Nums []int `json:"numbers"`
+}
+
+type Response struct {
+    Sum      int   `json:"sum,omitempty"`
+    Original []int `json:"original,omitempty"`
+    Error    string `json:"error,omitempty"`
+}
+
+func handleConnection(conn net.Conn) {
+    defer conn.Close()
+    reader := bufio.NewReader(conn)
+    for {
+        line, err := reader.ReadBytes('\n')
+        if err != nil {
+            return
+        }
+        var nums Numbers
+        if err := json.Unmarshal(line, &nums); err != nil {
+            resp, _ := json.Marshal(Response{Error: "invalid json"})
+            conn.Write(append(resp, '\n'))
+            continue
+        }
+        if len(nums.Nums) == 0 {
+            resp, _ := json.Marshal(Response{Error: "no numbers provided"})
+            conn.Write(append(resp, '\n'))
+            continue
+        }
+        for _, n := range nums.Nums {
+            if n > 1000 {
+                resp, _ := json.Marshal(Response{Error: "number too large"})
+                conn.Write(append(resp, '\n'))
+                goto NEXT
+            }
+        }
+        sum := 0
+        for _, n := range nums.Nums {
+            sum += n * n
+        }
+        resp, _ := json.Marshal(Response{
+            Sum:      sum,
+            Original: nums.Nums,
+        })
+        conn.Write(append(resp, '\n'))
+    NEXT:
+    }
+}
+
+func main() {
+    ln, err := net.Listen("tcp", ":8080")
+    if err != nil {
+        fmt.Println("Error starting server:", err)
+        return
+    }
+    defer ln.Close()
+    fmt.Println("TCP server listening on :8080")
+    for {
+        conn, err := ln.Accept()
+        if err != nil {
+            fmt.Println("Failed to accept connection:", err)
+            continue
+        }
+        go handleConnection(conn)
+    }
+}
