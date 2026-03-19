@@ -48,15 +48,27 @@ func handleConnection(conn net.Conn) {
 			return
 		}
 
+		fmt.Printf("Incoming request: %s", line)
+
 		var nums Numbers
 		if err := json.Unmarshal(line, &nums); err != nil {
-			resp, _ := json.Marshal(Response{Error: "invalid json"})
+			resp, marshalErr := json.Marshal(Response{Error: "invalid json"})
+			if marshalErr != nil {
+				fmt.Println("json.Marshal error:", marshalErr)
+				return
+			}
+			fmt.Printf("Server response: %s\n", resp)
 			conn.Write(append(resp, '\n'))
 			continue
 		}
 
 		resp := processNumbers(nums.Nums)
-		output, _ := json.Marshal(resp)
+		output, marshalErr := json.Marshal(resp)
+		if marshalErr != nil {
+			fmt.Println("json.Marshal error:", marshalErr)
+			return
+		}
+		fmt.Printf("Server response: %s\n", output)
 		conn.Write(append(output, '\n'))
 	}
 }

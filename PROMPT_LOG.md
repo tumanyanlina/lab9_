@@ -389,3 +389,191 @@ func main() {
         go handleConnection(conn)
     }
 }
+### Промпт 5
+**Инструмент:** Cursor
+**Дата:** 19.03.2026
+
+**Промпт:**
+Напиши unit-тесты для функции:
+func processNumbers(nums []int) Response
+
+Требования:
+1. Используй пакет testing
+2. Создай файл server_test.go
+3. Покрой случаи:
+   - нормальный ввод [1,2,3]
+   - пустой массив []
+   - число больше 1000
+4. Проверяй:
+   - правильную сумму
+   - наличие ошибки
+   - original массив
+
+**Результат:**
+Получила файл server_test.go с тремя тестами. Все тесты проходят.
+
+**Код (server_test.go):**
+```go
+package main
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestProcessNumbers_NormalInput(t *testing.T) {
+	input := []int{1, 2, 3}
+	wantSum := 1*1 + 2*2 + 3*3 // = 14
+
+	resp := processNumbers(input)
+	if resp.Error != "" {
+		t.Errorf("unexpected error: %v", resp.Error)
+	}
+	if resp.Sum != wantSum {
+		t.Errorf("got sum %v, want %v", resp.Sum, wantSum)
+	}
+	if !reflect.DeepEqual(resp.Original, input) {
+		t.Errorf("got original %v, want %v", resp.Original, input)
+	}
+}
+
+func TestProcessNumbers_EmptyArray(t *testing.T) {
+	input := []int{}
+	resp := processNumbers(input)
+	if resp.Error != "no numbers provided" {
+		t.Errorf("got error %v, want 'no numbers provided'", resp.Error)
+	}
+	if resp.Sum != 0 {
+		t.Errorf("got sum %v, want 0", resp.Sum)
+	}
+	if resp.Original != nil && len(resp.Original) > 0 {
+		t.Errorf("got original %v, want nil or empty", resp.Original)
+	}
+}
+
+func TestProcessNumbers_NumberTooLarge(t *testing.T) {
+	input := []int{10, 2000, 2}
+	resp := processNumbers(input)
+	if resp.Error != "number too large" {
+		t.Errorf("got error %v, want 'number too large'", resp.Error)
+	}
+	if resp.Sum != 0 {
+		t.Errorf("got sum %v, want 0", resp.Sum)
+	}
+	// For errors, the instruction does not specify about original, but let's check it is not filled
+	if resp.Original != nil && len(resp.Original) > 0 {
+		t.Errorf("got original %v, want nil or empty", resp.Original)
+	}
+}
+### Промпт 6
+**Инструмент:** Cursor
+**Дата:** 19.03.2026
+
+**Промпт:**
+Улучши код TCP сервера:
+1. Не игнорируй ошибки json.Marshal (убери _)
+2. Если marshal падает — выведи ошибку через fmt.Println
+3. Добавь логирование:
+   - вывод входящего запроса
+   - вывод ответа сервера
+
+**Результат:**
+Исправила игнорирование ошибок marshal. Добавила логирование запросов и ответов.
+
+**Код (server.go):**
+```go
+package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"net"
+)
+
+type Numbers struct {
+	Nums []int `json:"numbers"`
+}
+
+type Response struct {
+	Sum      int   `json:"sum,omitempty"`
+	Original []int `json:"original,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+func processNumbers(nums []int) Response {
+	if len(nums) == 0 {
+		return Response{Error: "no numbers provided"}
+	}
+
+	for _, n := range nums {
+		if n > 1000 {
+			return Response{Error: "number too large"}
+		}
+	}
+
+	sum := 0
+	for _, n := range nums {
+		sum += n * n
+	}
+
+	return Response{
+		Sum:      sum,
+		Original: nums,
+	}
+}
+
+func handleConnection(conn net.Conn) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+
+		fmt.Printf("Incoming request: %s", line)
+
+		var nums Numbers
+		if err := json.Unmarshal(line, &nums); err != nil {
+			resp, marshalErr := json.Marshal(Response{Error: "invalid json"})
+			if marshalErr != nil {
+				fmt.Println("json.Marshal error:", marshalErr)
+				return
+			}
+			fmt.Printf("Server response: %s\n", resp)
+			conn.Write(append(resp, '\n'))
+			continue
+		}
+
+		resp := processNumbers(nums.Nums)
+		output, marshalErr := json.Marshal(resp)
+		if marshalErr != nil {
+			fmt.Println("json.Marshal error:", marshalErr)
+			return
+		}
+		fmt.Printf("Server response: %s\n", output)
+		conn.Write(append(output, '\n'))
+	}
+}
+
+func main() {
+	ln, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		fmt.Println("Error starting server:", err)
+		return
+	}
+	defer ln.Close()
+
+	fmt.Println("TCP server listening on :8080")
+
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			fmt.Println("Failed to accept connection:", err)
+			continue
+		}
+		go handleConnection(conn)
+	}
+}
