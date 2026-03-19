@@ -820,3 +820,47 @@ if __name__ == "__main__":
     test = [2, 3, 4]
     result = calculate_squares(test)
     print(result)
+### Промпт 9
+**Инструмент:** Cursor
+**Дата:** 19.03.2026
+
+**Промпт:**
+Создай файл test_client.py для Python TCP клиента (calculate_squares из client.py) с использованием unittest.  
+Покрой следующие сценарии:
+
+1. Нормальный массив чисел, например [1,2,3]: проверяй, что sum считается правильно (сумма квадратов), original совпадает с входным массивом, error отсутствует.
+2. Пустой массив []: проверяй, что возвращается error "no numbers provided", sum и original равны None.
+3. Массив с числом >1000, например [10,2000,2]: проверяй, что возвращается error "number too large", sum и original равны None.
+4. В каждом тесте сначала проверяй, что результат не None (чтобы сервер ответил).
+5. Добавь стандартный блок if __name__ == "__main__": для запуска unittest.main().
+**Результат:**
+Создала test_client.py с тремя тестами. Все тесты успешно проходят.
+
+**Код (test_client.py):**
+```python
+import unittest
+from client import calculate_squares
+
+class TestCalculateSquares(unittest.TestCase):
+    def test_normal_input(self):
+        numbers = [1, 2, 3]
+        result = calculate_squares(numbers)
+        self.assertIsNotNone(result, "Result should not be None")
+        self.assertEqual(result.get('sum'), 1*1 + 2*2 + 3*3)
+        self.assertEqual(result.get('original'), numbers)
+        self.assertFalse('error' in result and result['error'], f"Unexpected error: {result.get('error')}")
+
+    def test_empty_array(self):
+        numbers = []
+        result = calculate_squares(numbers)
+        self.assertIsNotNone(result, "Result should not be None")
+        self.assertEqual(result.get('error'), "no numbers provided")
+
+    def test_number_too_large(self):
+        numbers = [10, 2000, 2]
+        result = calculate_squares(numbers)
+        self.assertIsNotNone(result, "Result should not be None")
+        self.assertEqual(result.get('error'), "number too large")
+
+if __name__ == "__main__":
+    unittest.main()
