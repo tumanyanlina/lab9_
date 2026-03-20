@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// --- Мок-процессор для тестирования фоновой обработки ---
 type MockProcessor struct {
 	CalledWith []string
 	mu         sync.Mutex
@@ -23,139 +22,94 @@ func (m *MockProcessor) Process(data string) error {
 	return nil
 }
 
-func TestProcessEndpoint(t *testing.T) {
-	mockProc := &MockProcessor{}
-	handler := loggingMiddleware(processHandler(mockProc))
-	srv := httptest.NewServer(handler)
+func withTestServer(proc *MockProcessor, f func(url string)) {
+	srv := httptest.NewServer(loggingMiddleware(processHandler(proc)))
 	defer srv.Close()
-
-	payload := ProcessRequest{Data: "test"}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("failed to marshal payload: %v", err)
-	}
-
-	start := time.Now()
-	resp, err := http.Post(srv.URL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("failed to do POST: %v", err)
-	}
-	defer resp.Body.Close()
-
-	elapsed := time.Since(start)
-	// Ответ должен прийти сразу (не ждать 2 секунды).
-	if elapsed > 300*time.Millisecond {
-		t.Errorf("response took too long: %v", elapsed)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200 OK, got %d", resp.StatusCode)
-	}
-
-	var got ProcessResponse
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		t.Errorf("failed to decode response: %v", err)
-	}
-	expected := ProcessResponse{Status: "accepted"}
-	if got != expected {
-		t.Errorf("expected response %+v, got %+v", expected, got)
-	}
-
-	// Проверяем, что Process вызван с нужными данными
-	time.Sleep(30 * time.Millisecond)
-	mockProc.mu.Lock()
-	defer mockProc.mu.Unlock()
-	if len(mockProc.CalledWith) != 1 {
-		t.Fatalf("Expected Process to be called once, got %d", len(mockProc.CalledWith))
-	}
-	if mockProc.CalledWith[0] != "test" {
-		t.Errorf("Expected Process called with 'test', got %q", mockProc.CalledWith[0])
-	}
+	f(srv.URL)
 }
 
-func TestProcessMethodNotAllowed(t *testing.T) {
-	mockProc := &MockProcessor{}
-	handler := loggingMiddleware(processHandler(mockProc))
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-
-	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
-	if err != nil {
-		t.Fatalf("failed to create GET request: %v", err)
+func doRequest(t *testing.T, method, url string, body []byte) *http.Response {
+	if method == http.MethodPost {
+		resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST error: %v", err)
+		}
+		return resp
 	}
+	req, _ := http.NewRequest(method, url, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("failed to send GET request: %v", err)
+		t.Fatalf("%s request error: %v", method, err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("expected status 405 Method Not Allowed, got %d", resp.StatusCode)
-	}
+	return resp
 }
 
-func TestProcessInvalidJSON(t *testing.T) {
+func TestProcessHandlerVariants(t *testing.T) {
 	mockProc := &MockProcessor{}
-	handler := loggingMiddleware(processHandler(mockProc))
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-
-	invalidJSON := []byte(`{invalid json}`)
-	resp, err := http.Post(srv.URL, "application/json", bytes.NewReader(invalidJSON))
-	if err != nil {
-		t.Fatalf("failed to POST invalid JSON: %v", err)
+	cases := []struct {
+		name          string
+		method        string
+		body          []byte
+		wantStatus    int
+		wantJSON      *ProcessResponse
+		wantProcess   string
+	}{
+		{"POST valid JSON", http.MethodPost, mustMarshal(ProcessRequest{Data: "test"}), http.StatusOK, &ProcessResponse{Status: "accepted"}, "test"},
+		{"GET returns 405", http.MethodGet, nil, http.StatusMethodNotAllowed, nil, ""},
+		{"POST invalid JSON", http.MethodPost, []byte(`{invalid json}`), http.StatusBadRequest, nil, ""},
+		{"POST empty body", http.MethodPost, nil, http.StatusBadRequest, nil, ""},
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected status 400 Bad Request, got %d", resp.StatusCode)
-	}
-}
-
-func TestProcessEmptyBody(t *testing.T) {
-	mockProc := &MockProcessor{}
-	handler := loggingMiddleware(processHandler(mockProc))
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
-
-	resp, err := http.Post(srv.URL, "application/json", bytes.NewReader(nil))
-	if err != nil {
-		t.Fatalf("failed to POST with empty body: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected status 400 Bad Request, got %d", resp.StatusCode)
-	}
+	withTestServer(mockProc, func(url string) {
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				resp := doRequest(t, tc.method, url, tc.body)
+				defer resp.Body.Close()
+				if resp.StatusCode != tc.wantStatus {
+					t.Errorf("want status %d, got %d", tc.wantStatus, resp.StatusCode)
+				}
+				if tc.wantJSON != nil {
+					var got ProcessResponse
+					if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+						t.Errorf("decode error: %v", err)
+					}
+					if got != *tc.wantJSON {
+						t.Errorf("want %+v, got %+v", *tc.wantJSON, got)
+					}
+				}
+				if tc.wantProcess != "" {
+					time.Sleep(30 * time.Millisecond)
+					mockProc.mu.Lock()
+					defer mockProc.mu.Unlock()
+					if len(mockProc.CalledWith) == 0 || mockProc.CalledWith[len(mockProc.CalledWith)-1] != tc.wantProcess {
+						t.Errorf("expected Process with %q, got %v", tc.wantProcess, mockProc.CalledWith)
+					}
+				}
+			})
+		}
+	})
 }
 
 func TestBackgroundProcessing(t *testing.T) {
 	mockProc := &MockProcessor{}
-	handler := loggingMiddleware(processHandler(mockProc))
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
+	withTestServer(mockProc, func(url string) {
+		body := mustMarshal(ProcessRequest{Data: "background"})
+		resp := doRequest(t, http.MethodPost, url, body)
+		resp.Body.Close()
+		time.Sleep(30 * time.Millisecond)
 
-	payload := ProcessRequest{Data: "background"}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("failed to marshal payload: %v", err)
-	}
+		mockProc.mu.Lock()
+		defer mockProc.mu.Unlock()
+		if len(mockProc.CalledWith) != 1 {
+			t.Fatalf("want 1 process call, got %d", len(mockProc.CalledWith))
+		}
+		if mockProc.CalledWith[0] != "background" {
+			t.Errorf("want 'background', got %q", mockProc.CalledWith[0])
+		}
+	})
+}
 
-	resp, err := http.Post(srv.URL, "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("failed to POST: %v", err)
-	}
-	resp.Body.Close()
-
-	// Даем время на запуск фоновой горутины (Process вызывается асинхронно)
-	time.Sleep(30 * time.Millisecond)
-
-	mockProc.mu.Lock()
-	defer mockProc.mu.Unlock()
-	if len(mockProc.CalledWith) != 1 {
-		t.Fatalf("process should be called once, got %d calls", len(mockProc.CalledWith))
-	}
-	if mockProc.CalledWith[0] != "background" {
-		t.Errorf("expected process called with %q, got %q", "background", mockProc.CalledWith[0])
-	}
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

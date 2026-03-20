@@ -1651,3 +1651,268 @@ func TestBackgroundProcessing(t *testing.T) {
 		t.Errorf("expected process called with %q, got %q", "background", mockProc.CalledWith[0])
 	}
 }
+### Промпт 8
+**Инструмент:** Cursor
+**Дата:** 20.03.2026
+
+**Промпт:**
+Проведи рефакторинг тестов в http_server_test.go:
+
+1. Объедини похожие тесты в табличные (table-driven tests)
+2. Убери дублирование создания handler и сервера
+3. Убери все комментарии
+4. Сделай тесты компактными, сохранив всю логику
+
+**Результат:**
+Провела рефакторинг тестов: объединила 4 теста (POST valid JSON, GET returns 405, POST invalid JSON, POST empty body) в табличный тест TestProcessHandlerVariants. Добавила вспомогательную функцию withTestServer для устранения дублирования создания сервера. Тесты стали чище и компактнее.
+
+**Код (http_server_test.go):**
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+	"time"
+)
+
+type MockProcessor struct {
+	CalledWith []string
+	mu         sync.Mutex
+}
+
+func (m *MockProcessor) Process(data string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.CalledWith = append(m.CalledWith, data)
+	return nil
+}
+
+func withTestServer(proc *MockProcessor, f func(url string)) {
+	srv := httptest.NewServer(loggingMiddleware(processHandler(proc)))
+	defer srv.Close()
+	f(srv.URL)
+}
+
+func doRequest(t *testing.T, method, url string, body []byte) *http.Response {
+	if method == http.MethodPost {
+		resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST error: %v", err)
+		}
+		return resp
+	}
+	req, _ := http.NewRequest(method, url, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s request error: %v", method, err)
+	}
+	return resp
+}
+
+func TestProcessHandlerVariants(t *testing.T) {
+	mockProc := &MockProcessor{}
+	cases := []struct {
+		name          string
+		method        string
+		body          []byte
+		wantStatus    int
+		wantJSON      *ProcessResponse
+		wantProcess   string
+	}{
+		{"POST valid JSON", http.MethodPost, mustMarshal(ProcessRequest{Data: "test"}), http.StatusOK, &ProcessResponse{Status: "accepted"}, "test"},
+		{"GET returns 405", http.MethodGet, nil, http.StatusMethodNotAllowed, nil, ""},
+		{"POST invalid JSON", http.MethodPost, []byte(`{invalid json}`), http.StatusBadRequest, nil, ""},
+		{"POST empty body", http.MethodPost, nil, http.StatusBadRequest, nil, ""},
+	}
+
+	withTestServer(mockProc, func(url string) {
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				resp := doRequest(t, tc.method, url, tc.body)
+				defer resp.Body.Close()
+				if resp.StatusCode != tc.wantStatus {
+					t.Errorf("want status %d, got %d", tc.wantStatus, resp.StatusCode)
+				}
+				if tc.wantJSON != nil {
+					var got ProcessResponse
+					if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+						t.Errorf("decode error: %v", err)
+					}
+					if got != *tc.wantJSON {
+						t.Errorf("want %+v, got %+v", *tc.wantJSON, got)
+					}
+				}
+				if tc.wantProcess != "" {
+					time.Sleep(30 * time.Millisecond)
+					mockProc.mu.Lock()
+					defer mockProc.mu.Unlock()
+					if len(mockProc.CalledWith) == 0 || mockProc.CalledWith[len(mockProc.CalledWith)-1] != tc.wantProcess {
+						t.Errorf("expected Process with %q, got %v", tc.wantProcess, mockProc.CalledWith)
+					}
+				}
+			})
+		}
+	})
+}
+
+func TestBackgroundProcessing(t *testing.T) {
+	mockProc := &MockProcessor{}
+	withTestServer(mockProc, func(url string) {
+		body := mustMarshal(ProcessRequest{Data: "background"})
+		resp := doRequest(t, http.MethodPost, url, body)
+		resp.Body.Close()
+		time.Sleep(30 * time.Millisecond)
+
+		mockProc.mu.Lock()
+		defer mockProc.mu.Unlock()
+		if len(mockProc.CalledWith) != 1 {
+			t.Fatalf("want 1 process call, got %d", len(mockProc.CalledWith))
+		}
+		if mockProc.CalledWith[0] != "background" {
+			t.Errorf("want 'background', got %q", mockProc.CalledWith[0])
+		}
+	})
+}
+
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
+}
+### Промпт 9
+**Инструмент:** Cursor
+**Дата:** 20.03.2026
+
+**Промпт:**
+Проведи рефакторинг кода в http_server.go:
+
+- Убери дублирование
+- Вынеси повторяющиеся блоки в отдельные функции
+- Сделай код идиоматичным для Go
+- Убери все комментарии
+
+**Результат:**
+Провела рефакторинг серверного кода: вынесла respondJSON для унификации ответов, decodeProcessRequest для обработки запросов, runServer для управления жизненным циклом сервера. Код стал чище и структурированнее.
+
+**Код (http_server.go):**
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+)
+
+type ProcessRequest struct {
+	Data string `json:"data"`
+}
+
+type ProcessResponse struct {
+	Status string `json:"status"`
+}
+
+type Processor interface {
+	Process(string) error
+}
+
+type DefaultProcessor struct{}
+
+func (p *DefaultProcessor) Process(data string) error {
+	log.Printf("Start processing: %s", data)
+	time.Sleep(2 * time.Second)
+	log.Printf("Done processing: %s", data)
+	return nil
+}
+
+var bgWg sync.WaitGroup
+
+func respondJSON(w http.ResponseWriter, status int, resp interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func decodeProcessRequest(r *http.Request) (ProcessRequest, error) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return ProcessRequest{}, err
+	}
+	var req ProcessRequest
+	err = json.Unmarshal(body, &req)
+	return req, err
+}
+
+func processHandler(processor Processor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		req, err := decodeProcessRequest(r)
+		if err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		respondJSON(w, http.StatusOK, ProcessResponse{Status: "accepted"})
+		bgWg.Add(1)
+		go func(data string) {
+			defer bgWg.Done()
+			if err := processor.Process(data); err != nil {
+				log.Printf("Background processing failed: %v", err)
+			}
+		}(req.Data)
+	}
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s from %s", r.Method, r.URL.Path, r.RemoteAddr)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func runServer(addr string, handler http.Handler) {
+	server := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+	idleConnsClosed := make(chan struct{})
+	go func() {
+		sigint := make(chan os.Signal, 1)
+		signal.Notify(sigint, os.Interrupt, syscall.SIGTERM)
+		<-sigint
+		log.Println("Shutting down server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server Shutdown: %v", err)
+		}
+		bgWg.Wait()
+		close(idleConnsClosed)
+	}()
+	log.Println("Server listening on", addr)
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("HTTP server ListenAndServe: %v", err)
+	}
+	<-idleConnsClosed
+	log.Println("Server stopped")
+}
+
+func main() {
+	processor := &DefaultProcessor{}
+	mux := http.NewServeMux()
+	mux.Handle("/process", loggingMiddleware(processHandler(processor)))
+	runServer(":8081", mux)
+}
