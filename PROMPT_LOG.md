@@ -951,7 +951,7 @@ func main() {
 	log.Println("Server listening on :8081")
 	log.Fatal(http.ListenAndServe(":8081", mux))
 }
-### Промпт 2.2
+### Промпт 2
 **Инструмент:** Cursor
 **Дата:** 20.03.2026
 
@@ -1075,4 +1075,64 @@ func main() {
 
 	<-idleConnsClosed
 	log.Println("Server stopped")
+}
+### Промпт 3
+**Инструмент:** Cursor
+**Дата:** 20.03.2026
+
+**Промпт:**
+Напиши тест для HTTP сервера:
+
+1. Используй пакет testing и httptest
+2. TestProcessEndpoint:
+   - отправляет POST запрос с {"data": "test"}
+   - проверяет что статус код 200
+   - проверяет что ответ {"status": "accepted"}
+   - проверяет что ответ пришел сразу (без задержки)
+
+**Результат:**
+Создала файл http_server_test.go с тестом для эндпоинта /process. Тест проверяет, что ответ приходит мгновенно, без ожидания фоновой обработки.
+
+**Код (http_server_test.go):**
+```go
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+func TestProcessEndpoint(t *testing.T) {
+	handler := loggingMiddleware(http.HandlerFunc(processHandler))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	payload := ProcessRequest{Data: "test"}
+	body, _ := json.Marshal(payload)
+
+	start := time.Now()
+	resp, err := http.Post(srv.URL+"/process", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to do POST: %v", err)
+	}
+	defer resp.Body.Close()
+	elapsed := time.Since(start)
+
+	if elapsed > 300*time.Millisecond {
+		t.Errorf("response took too long: %v", elapsed)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	var got ProcessResponse
+	json.NewDecoder(resp.Body).Decode(&got)
+	expected := ProcessResponse{Status: "accepted"}
+	if got != expected {
+		t.Errorf("expected %+v, got %+v", expected, got)
+	}
 }
