@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -22,6 +21,21 @@ type ProcessResponse struct {
 	Status string `json:"status"`
 }
 
+// Processor interface
+type Processor interface {
+	Process(data string) error
+}
+
+// DefaultProcessor implementation
+type DefaultProcessor struct{}
+
+func (p *DefaultProcessor) Process(data string) error {
+	log.Printf("Start processing: %s", data)
+	time.Sleep(2 * time.Second)
+	log.Printf("Done processing: %s", data)
+	return nil
+}
+
 var (
 	bgWg sync.WaitGroup
 )
@@ -33,47 +47,47 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Вынесенная функция обработки данных
-func processRequest(data string) {
-	log.Printf("Start processing: %s", data)
-	time.Sleep(2 * time.Second)
-	log.Printf("Done processing: %s", data)
-}
-func processHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+// Handler factory to use injected Processor
+func processHandler(processor Processor) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Bad request", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		var req ProcessRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Respond immediately
+		resp := ProcessResponse{Status: "accepted"}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+
+		// Process in background and track completion
+		bgWg.Add(1)
+		go func(data string) {
+			defer bgWg.Done()
+			if err := processor.Process(data); err != nil {
+				log.Printf("Background processing failed: %v", err)
+			}
+		}(req.Data)
 	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	defer r.Body.Close()
-
-	var req ProcessRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	// Respond immediately
-	resp := ProcessResponse{Status: "accepted"}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-
-	// Process in background and track completion
-	bgWg.Add(1)
-	go func(data string) {
-		defer bgWg.Done()
-		processRequest(data)
-	}(req.Data)
 }
 
 func main() {
 	mux := http.NewServeMux()
-	mux.Handle("/process", loggingMiddleware(http.HandlerFunc(processHandler)))
+	processor := &DefaultProcessor{}
+	mux.Handle("/process", loggingMiddleware(processHandler(processor)))
 	server := &http.Server{
 		Addr:    ":8081",
 		Handler: mux,
