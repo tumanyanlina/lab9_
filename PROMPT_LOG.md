@@ -1136,3 +1136,71 @@ func TestProcessEndpoint(t *testing.T) {
 		t.Errorf("expected %+v, got %+v", expected, got)
 	}
 }
+### Промпт 4
+**Инструмент:** Cursor
+**Дата:** 20.03.2026
+
+**Промпт:**
+Добавь дополнительные тесты для processHandler:
+- GET запрос должен возвращать 405 Method Not Allowed
+- POST с некорректным JSON должен возвращать 400 Bad Request
+- POST с пустым телом должен возвращать 400 Bad Request
+Используй httptest и проверь статус-коды.
+
+**Результат:**
+Добавила дополнительные тесты для проверки обработки ошибок: метод не разрешен, некорректный JSON и пустое тело запроса. Все тесты проходят успешно.
+
+**Код (http_server_test.go - дополнение):**
+```go
+func TestProcessMethodNotAllowed(t *testing.T) {
+	handler := loggingMiddleware(http.HandlerFunc(processHandler))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("failed to create GET request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to send GET request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405 Method Not Allowed, got %d", resp.StatusCode)
+	}
+}
+
+func TestProcessInvalidJSON(t *testing.T) {
+	handler := loggingMiddleware(http.HandlerFunc(processHandler))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	invalidJSON := []byte(`{invalid json}`)
+	resp, err := http.Post(srv.URL, "application/json", bytes.NewReader(invalidJSON))
+	if err != nil {
+		t.Fatalf("failed to POST invalid JSON: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status 400 Bad Request, got %d", resp.StatusCode)
+	}
+}
+
+func TestProcessEmptyBody(t *testing.T) {
+	handler := loggingMiddleware(http.HandlerFunc(processHandler))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL, "application/json", bytes.NewReader(nil))
+	if err != nil {
+		t.Fatalf("failed to POST with empty body: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status 400 Bad Request, got %d", resp.StatusCode)
+	}
+}
