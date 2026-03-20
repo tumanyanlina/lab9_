@@ -1916,3 +1916,37 @@ func main() {
 	mux.Handle("/process", loggingMiddleware(processHandler(processor)))
 	runServer(":8081", mux)
 }
+## Задание 7: Использовать PyO3 для создания Python-модуля на Rust.
+
+### Промпт 1
+**Инструмент:** Chat GPT
+**Дата:** 20.03.2026
+
+**Промпт:**
+Создай Python модуль на Rust с PyO3. Нужны две функции:
+- multiply_by_two: принимает число, возвращает число умноженное на 2
+- make_greeting: принимает имя, возвращает приветствие "Hi, {name}! Welcome from Rust."
+
+**Результат:**
+Получила базовый Rust модуль с двумя функциями, зарегистрированными через pymodule. Настроила Cargo.toml с cdylib и зависимостью pyo3. Добавила Python тесты.
+
+**Код (src/lib.rs):**
+```rust
+use pyo3::prelude::*;
+
+#[pyfunction]
+fn multiply_by_two(x: i32) -> PyResult<i32> {
+    Ok(x * 2)
+}
+
+#[pyfunction]
+fn make_greeting(name: &str) -> PyResult<String> {
+    Ok(format!("Hi, {}! Welcome from Rust.", name))
+}
+
+#[pymodule]
+fn my_rust_module(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(multiply_by_two, m)?)?;
+    m.add_function(wrap_pyfunction!(make_greeting, m)?)?;
+    Ok(())
+}
