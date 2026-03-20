@@ -1950,3 +1950,162 @@ fn my_rust_module(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(make_greeting, m)?)?;
     Ok(())
 }
+### Промпт 2
+**Инструмент:** Cursor
+**Дата:** 20.03.2026
+
+**Промпт:**
+Создай Python модуль на Rust с PyO3. Нужны две функции:
+- `multiply_by_two(x)` — принимает целое число, возвращает число умноженное на 2
+- `make_greeting(name)` — принимает строку с именем, возвращает приветствие в формате "Hi, {name}! Welcome from Rust."
+
+**Результат:**
+Получила базовый Rust модуль с двумя функциями, зарегистрированными через pymodule. Настроила Cargo.toml с cdylib и зависимостью pyo3.
+
+**Код (src/lib.rs):**
+```rust
+use pyo3::prelude::*;
+
+#[pyfunction]
+fn multiply_by_two(x: i32) -> PyResult<i32> {
+    Ok(x * 2)
+}
+
+#[pyfunction]
+fn make_greeting(name: &str) -> PyResult<String> {
+    Ok(format!("Hi, {}! Welcome from Rust.", name))
+}
+
+#[pymodule]
+fn my_rust_module(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(multiply_by_two, m)?)?;
+    m.add_function(wrap_pyfunction!(make_greeting, m)?)?;
+    Ok(())
+}
+### Промпт 3
+**Инструмент:** Cursor
+**Дата:** 20.03.2026
+
+**Промпт:**
+Напиши тесты для Python модуля my_rust_module, который я создал на Rust с PyO3. Модуль содержит две функции:
+- multiply_by_two(x) — принимает целое число, возвращает число умноженное на 2
+- make_greeting(name) — принимает строку с именем, возвращает приветствие в формате "Hi, {name}! Welcome from Rust."
+Напиши:
+1. Python тесты с pytest в файле python/test_module.py:
+- Тест для multiply_by_two с разными числами: положительные, ноль, отрицательные
+- Тест для make_greeting с разными именами
+- Тест, который проверяет, что модуль импортируется
+- Добавь if name == "main" для запуска тестов
+2. Rust тесты внутри src/lib.rs в модуле #[cfg(test)]:
+- Тесты для каждой функции
+- Используй assert_eq!
+
+**Результат:**
+Получила тесты для Python и Rust. Python тесты включают проверку импорта модуля, тесты для multiply_by_two (положительные, ноль, отрицательные числа) и make_greeting (разные имена, имя с пробелами, пустая строка). Rust тесты покрывают все сценарии для обеих функций. Все тесты проходят успешно.
+**Код (python/test_module.py):
+import pytest
+
+try:
+    import my_rust_module
+except ImportError:
+    my_rust_module = None
+
+def test_module_import():
+    """Проверка, что модуль my_rust_module успешно импортируется."""
+    assert my_rust_module is not None
+    assert hasattr(my_rust_module, "multiply_by_two")
+    assert hasattr(my_rust_module, "make_greeting")
+
+class TestMultiplyByTwo:
+    """Тесты для функции multiply_by_two."""
+
+    def test_positive_number(self):
+        """Умножение положительного числа на 2."""
+        assert my_rust_module.multiply_by_two(5) == 10
+        assert my_rust_module.multiply_by_two(100) == 200
+
+    def test_zero(self):
+        """Умножение нуля на 2."""
+        assert my_rust_module.multiply_by_two(0) == 0
+
+    def test_negative_number(self):
+        """Умножение отрицательного числа на 2."""
+        assert my_rust_module.multiply_by_two(-5) == -10
+        assert my_rust_module.multiply_by_two(-100) == -200
+
+class TestMakeGreeting:
+    """Тесты для функции make_greeting."""
+
+    def test_simple_name(self):
+        """Приветствие с простым именем."""
+        assert my_rust_module.make_greeting("Alice") == "Hi, Alice! Welcome from Rust."
+
+    def test_another_name(self):
+        """Приветствие с другим именем."""
+        assert my_rust_module.make_greeting("Bob") == "Hi, Bob! Welcome from Rust."
+
+    def test_name_with_spaces(self):
+        """Приветствие с именем, содержащим пробелы."""
+        result = my_rust_module.make_greeting("John Doe")
+        assert result == "Hi, John Doe! Welcome from Rust."
+
+    def test_empty_string(self):
+        """Приветствие с пустой строкой."""
+        assert my_rust_module.make_greeting("") == "Hi, ! Welcome from Rust."
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+
+**Код (src/lib.rs):**
+use pyo3::prelude::*;
+
+#[pyfunction]
+fn multiply_by_two(x: i32) -> PyResult<i32> {
+    Ok(x * 2)
+}
+
+#[pyfunction]
+fn make_greeting(name: &str) -> PyResult<String> {
+    Ok(format!("Hi, {}! Welcome from Rust.", name))
+}
+
+#[pymodule]
+fn my_rust_module(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(multiply_by_two, m)?)?;
+    m.add_function(wrap_pyfunction!(make_greeting, m)?)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_multiply_by_two_positive() {
+        assert_eq!(multiply_by_two(5).unwrap(), 10);
+        assert_eq!(multiply_by_two(100).unwrap(), 200);
+    }
+
+    #[test]
+    fn test_multiply_by_two_zero() {
+        assert_eq!(multiply_by_two(0).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_multiply_by_two_negative() {
+        assert_eq!(multiply_by_two(-5).unwrap(), -10);
+        assert_eq!(multiply_by_two(-100).unwrap(), -200);
+    }
+
+    #[test]
+    fn test_make_greeting() {
+        assert_eq!(
+            make_greeting("Alice").unwrap(),
+            "Hi, Alice! Welcome from Rust."
+        );
+        assert_eq!(
+            make_greeting("Bob").unwrap(),
+            "Hi, Bob! Welcome from Rust."
+        );
+    }
+}
