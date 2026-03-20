@@ -33,6 +33,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// Вынесенная функция обработки данных
+func processRequest(data string) {
+	log.Printf("Start processing: %s", data)
+	time.Sleep(2 * time.Second)
+	log.Printf("Done processing: %s", data)
+}
 func processHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -61,8 +67,7 @@ func processHandler(w http.ResponseWriter, r *http.Request) {
 	bgWg.Add(1)
 	go func(data string) {
 		defer bgWg.Done()
-		time.Sleep(2 * time.Second)
-		fmt.Printf("Processed: %s\n", data)
+		processRequest(data)
 	}(req.Data)
 }
 
@@ -105,4 +110,3 @@ func main() {
 	<-idleConnsClosed
 	log.Println("Server stopped")
 }
-
